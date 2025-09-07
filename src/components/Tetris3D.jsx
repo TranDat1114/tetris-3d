@@ -77,7 +77,6 @@ const TETROMINOES = {
 export default function Tetris3D({ settings, onApi, onCameraChange }) {
     const mountRef = useRef(null)
     // UI overlays state (React-driven)
-    const [pausedUI, setPausedUI] = useState(false)
     const [gameOverUI, setGameOverUI] = useState(false)
     const settingsRef = useRef(settings)
     const currentTypeRef = useRef(null)
@@ -539,8 +538,6 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
                 // P should always toggle pause regardless of game state
                 paused = !paused
                 api?.onPausedChange?.(paused)
-                // Reflect in UI unless game over is active
-                if (!gameOver) setPausedUI(paused)
                 return
             }
             if (e.code === 'KeyR') {
@@ -655,7 +652,7 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
 
         // Expose minimal API
         const api = {
-            setPaused: (v) => { paused = !!v; if (!gameOver) setPausedUI(!!v) },
+            setPaused: (v) => { paused = !!v },
             isPaused: () => paused,
             onPausedChange: null,
             resetGame,
@@ -821,36 +818,18 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
 
     return (
         <div ref={mountRef} style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}>
-            {(pausedUI || gameOverUI) && (
+            {gameOverUI && (
                 <div
                     style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        pointerEvents: 'none',
-                        zIndex: 999,
+                        position: 'fixed', left: 0, top: 0, width: '100%', height: '100%',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: '#fff', pointerEvents: 'none',
+                        textShadow: '0 2px 12px rgba(0,0,0,0.8)', zIndex: 999,
                     }}
                 >
-                    <div
-                        style={{
-                            background: 'rgba(0,0,0,0.55)',
-                            color: '#fff',
-                            padding: '12px 16px',
-                            borderRadius: 8,
-                            border: '1px solid #333',
-                            fontSize: 18,
-                            letterSpacing: 0.5,
-                            textAlign: 'center',
-                            backdropFilter: 'blur(2px)',
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.35)'
-                        }}
-                    >
-                        {gameOverUI ? 'Game Over — Press R to restart' : 'Paused — Press P to resume'}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, textAlign: 'center' }}>
+                        <div style={{ fontSize: 32, fontWeight: 800 }}>Game Over</div>
+                        <div style={{ fontSize: 20, fontWeight: 700 }}>Press R to Restart</div>
                     </div>
                 </div>
             )}
