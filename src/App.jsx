@@ -60,7 +60,7 @@ function App() {
     },
     effects: {
       outlineEnabled: false,
-      outlineColor: '#666',
+      outlineColor: '#666666',
       outlineThickness: 0.003,
       edgesEnabled: false,
       edgesColor: '#ffffff',

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
@@ -76,6 +76,9 @@ const TETROMINOES = {
 
 export default function Tetris3D({ settings, onApi, onCameraChange }) {
     const mountRef = useRef(null)
+    // UI overlays state (React-driven)
+    const [pausedUI, setPausedUI] = useState(false)
+    const [gameOverUI, setGameOverUI] = useState(false)
     const settingsRef = useRef(settings)
     const currentTypeRef = useRef(null)
     const cameraRef = useRef(null)
@@ -124,6 +127,7 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
         renderer.domElement.style.position = 'fixed'
         renderer.domElement.style.top = '0'
         renderer.domElement.style.left = '0'
+        renderer.domElement.style.zIndex = '0'
         mountRef.current.appendChild(renderer.domElement)
         rendererRef.current = renderer
 
@@ -345,12 +349,35 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
             const keys = Object.keys(TETROMINOES)
             const type = keys[Math.floor(Math.random() * keys.length)]
             const rotIndex = 0
-            const pieceWidth = 4
-            const pos = { x: Math.floor((COLS - pieceWidth) / 2), y: ROWS - 4 }
-            current = { type, rotIndex, pos }
+            const shape = TETROMINOES[type].rotations[rotIndex]
+            // Compute shape bounds to center horizontally and place top at top row
+            let minCx = Infinity, maxCx = -Infinity, maxCy = -Infinity
+            for (const [cx, cy] of shape) {
+                if (cx < minCx) minCx = cx
+                if (cx > maxCx) maxCx = cx
+                if (cy > maxCy) maxCy = cy
+            }
+            const width = (maxCx - minCx + 1)
+            const spawnX = Math.floor((COLS - width) / 2) - minCx
+            const spawnY = (ROWS - 1) - maxCy
+            current = { type, rotIndex, pos: { x: spawnX, y: spawnY } }
+            console.log('[Spawn] type:', type, 'rotIndex:', rotIndex, 'spawn pos:', current.pos)
 
             if (!canPlace(current)) {
+                // Cannot place a new piece: game over
                 gameOver = true
+                current = null
+                // Diagnose which cells failed
+                const cells = shape.map(([cx, cy]) => ({ x: spawnX + cx, y: spawnY + cy }))
+                const reasons = cells.map(({ x, y }) => {
+                    if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return { x, y, reason: 'out-of-bounds' }
+                    if (board[y][x]) return { x, y, reason: 'occupied' }
+                    return { x, y, reason: 'ok' }
+                })
+                console.warn('[GameOver] Spawn blocked. Cells:', reasons)
+                setGameOverUI(true)
+                setPausedUI(false)
+                return
             }
             drawActive()
         }
@@ -379,6 +406,11 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
         function drawActive() {
             activeGroup.clear()
             edgesActiveGroup.clear()
+            // If no current piece (e.g., at game over or between spawns), clear outline and exit
+            if (!current) {
+                if (outlinePass) outlinePass.selectedObjects = []
+                return
+            }
             const color = getTetrominoColor(current.type)
             const selectedObjects = []
             eachCells(current, (x, y) => {
@@ -387,9 +419,7 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
                 selectedObjects.push(mesh)
                 if (settingsRef.current.effects.edgesEnabled) addEdgesForActive(mesh, settingsRef.current.effects.edgesColor)
             })
-            if (outlinePass) {
-                outlinePass.selectedObjects = selectedObjects
-            }
+            if (outlinePass) outlinePass.selectedObjects = selectedObjects
         }
         drawActiveRef.current = drawActive
 
@@ -420,7 +450,9 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
 
         function lockPiece() {
             const color = getTetrominoColor(current.type)
+            let overflow = false
             eachCells(current, (x, y) => {
+                if (y >= ROWS) overflow = true
                 if (y >= 0 && y < ROWS && x >= 0 && x < COLS) board[y][x] = { color, type: current.type }
             })
             let cleared = 0
@@ -433,6 +465,13 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
                 }
             }
             rebuildBoardMeshes()
+            if (overflow) {
+                // Any part of the piece locked above the top: game over
+                gameOver = true
+                console.warn('[GameOver] Piece locked above top row. type:', current.type, 'pos:', current.pos)
+                setGameOverUI(true)
+                setPausedUI(false)
+            }
             return cleared
         }
 
@@ -478,7 +517,7 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
             if (!current) return 0
             while (tryMove(0, -1)) { }
             const cleared = lockPiece()
-            spawn()
+            if (!gameOver) spawn()
             return cleared
         }
 
@@ -487,6 +526,7 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
             board = Array.from({ length: ROWS }, () => Array(COLS).fill(null))
             rebuildBoardMeshes()
             gameOver = false
+            setGameOverUI(false)
             current = null
             spawn()
             lastStep = performance.now()
@@ -499,6 +539,8 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
                 // P should always toggle pause regardless of game state
                 paused = !paused
                 api?.onPausedChange?.(paused)
+                // Reflect in UI unless game over is active
+                if (!gameOver) setPausedUI(paused)
                 return
             }
             if (e.code === 'KeyR') {
@@ -599,7 +641,7 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
                 lastStep = now
                 if (!tryMove(0, -1)) {
                     lockPiece()
-                    spawn()
+                    if (!gameOver) spawn()
                 }
             }
             if (outlinePass.enabled) composer.render()
@@ -613,7 +655,7 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
 
         // Expose minimal API
         const api = {
-            setPaused: (v) => { paused = !!v },
+            setPaused: (v) => { paused = !!v; if (!gameOver) setPausedUI(!!v) },
             isPaused: () => paused,
             onPausedChange: null,
             resetGame,
@@ -777,5 +819,41 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
         }
     }, [settings])
 
-    return <div ref={mountRef} style={{ width: '100%', height: '100%', overflow: 'hidden' }} />
+    return (
+        <div ref={mountRef} style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}>
+            {(pausedUI || gameOverUI) && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        pointerEvents: 'none',
+                        zIndex: 999,
+                    }}
+                >
+                    <div
+                        style={{
+                            background: 'rgba(0,0,0,0.55)',
+                            color: '#fff',
+                            padding: '12px 16px',
+                            borderRadius: 8,
+                            border: '1px solid #333',
+                            fontSize: 18,
+                            letterSpacing: 0.5,
+                            textAlign: 'center',
+                            backdropFilter: 'blur(2px)',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.35)'
+                        }}
+                    >
+                        {gameOverUI ? 'Game Over — Press R to restart' : 'Paused — Press P to resume'}
+                    </div>
+                </div>
+            )}
+        </div>
+    )
 }
