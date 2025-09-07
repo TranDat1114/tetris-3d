@@ -15,13 +15,13 @@ const GAP = 0.05
 const STEP = CELL_SIZE + GAP
 
 const COLORS = {
-    I: 0x00ffff,
-    J: 0x0000ff,
-    L: 0xffa500,
-    O: 0xffff00,
-    S: 0x00ff00,
-    T: 0xffc13c,
-    Z: 0xff0000,
+    I: 0xF8BBD0,
+    J: 0xA8E6CF,
+    L: 0xFFF9C4,
+    O: 0xE1BEE7,
+    S: 0xB3E5FC,
+    T: 0xFFDAB9,
+    Z: 0xCFD8DC,
 }
 
 const TETROMINOES = {
@@ -30,7 +30,6 @@ const TETROMINOES = {
             [[0, 1], [1, 1], [2, 1], [3, 1]],
             [[2, 0], [2, 1], [2, 2], [2, 3]],
         ],
-        color: COLORS.I,
     },
     J: {
         rotations: [
@@ -39,7 +38,6 @@ const TETROMINOES = {
             [[0, 1], [1, 1], [2, 1], [2, 2]],
             [[1, 0], [1, 1], [0, 2], [1, 2]],
         ],
-        color: COLORS.J,
     },
     L: {
         rotations: [
@@ -48,20 +46,17 @@ const TETROMINOES = {
             [[0, 1], [1, 1], [2, 1], [0, 2]],
             [[0, 0], [1, 0], [1, 1], [1, 2]],
         ],
-        color: COLORS.L,
     },
     O: {
         rotations: [
             [[1, 0], [2, 0], [1, 1], [2, 1]],
         ],
-        color: COLORS.O,
     },
     S: {
         rotations: [
             [[1, 1], [2, 1], [0, 2], [1, 2]],
             [[1, 0], [1, 1], [2, 1], [2, 2]],
         ],
-        color: COLORS.S,
     },
     T: {
         rotations: [
@@ -70,19 +65,43 @@ const TETROMINOES = {
             [[0, 1], [1, 1], [2, 1], [1, 2]],
             [[1, 0], [0, 1], [1, 1], [1, 2]],
         ],
-        color: COLORS.T,
     },
     Z: {
         rotations: [
             [[0, 1], [1, 1], [1, 2], [2, 2]],
             [[2, 0], [1, 1], [2, 1], [1, 2]],
         ],
-        color: COLORS.Z,
     },
 }
 
-export default function Tetris3D({ settings, onApi }) {
+export default function Tetris3D({ settings, onApi, onCameraChange }) {
     const mountRef = useRef(null)
+    const settingsRef = useRef(settings)
+    const currentTypeRef = useRef(null)
+    const cameraRef = useRef(null)
+    const rendererRef = useRef(null)
+    const controlsRef = useRef(null)
+    const rebuildBoardMeshesRef = useRef(null)
+    const buildBorderMeshesRef = useRef(null)
+    const drawActiveRef = useRef(null)
+    const ambRef = useRef(null)
+    const dirLightRef = useRef(null)
+    const celestialLightRef = useRef(null)
+    const lastTimeRef = useRef(performance.now())
+    const composerRef = useRef(null)
+    const outlinePassRef = useRef(null)
+    const fxaaPassRef = useRef(null)
+    const worldGroupRef = useRef(null)
+    const boardGroupRef = useRef(null)
+    const activeGroupRef = useRef(null)
+    const borderGroupRef = useRef(null)
+    const edgesActiveGroupRef = useRef(null)
+    const edgesBoardGroupRef = useRef(null)
+    const edgesBorderGroupRef = useRef(null)
+    const lastCamEmitRef = useRef({ distance: null, height: null, targetY: null, targetX: null, targetZ: null })
+    const celestialBodyRef = useRef(null)
+    const celestialAzimuthRef = useRef(0)
+    const celestialAzimuthSettingRef = useRef(null)
 
     useEffect(() => {
         // Scene, camera, renderer
@@ -96,6 +115,7 @@ export default function Tetris3D({ settings, onApi }) {
             1000,
         )
         camera.position.set(0, settings.camera.height, settings.camera.distance)
+        cameraRef.current = camera
 
         const renderer = new THREE.WebGLRenderer({ antialias: true })
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -105,11 +125,48 @@ export default function Tetris3D({ settings, onApi }) {
         renderer.domElement.style.top = '0'
         renderer.domElement.style.left = '0'
         mountRef.current.appendChild(renderer.domElement)
+        rendererRef.current = renderer
 
         // Controls
         const controls = new OrbitControls(camera, renderer.domElement)
         controls.enableDamping = true
         controls.target.set(0, settings.camera.targetY, 0)
+        controlsRef.current = controls
+
+        // Emit camera changes back to parent settings when user interacts
+        const emitCameraChange = () => {
+            if (!onCameraChange) return
+            const cam = cameraRef.current
+            const ctr = controlsRef.current
+            if (!cam || !ctr) return
+            const tgt = ctr.target
+            const dx = cam.position.x - tgt.x
+            const dz = cam.position.z - tgt.z
+            const distance = Math.sqrt(dx * dx + dz * dz)
+            const height = cam.position.y
+            const targetY = tgt.y
+            const targetX = tgt.x
+            const targetZ = tgt.z
+            const prev = lastCamEmitRef.current
+            const eps = 0.01
+            const changed =
+                (prev.distance === null || Math.abs(prev.distance - distance) > eps) ||
+                (prev.height === null || Math.abs(prev.height - height) > eps) ||
+                (prev.targetY === null || Math.abs(prev.targetY - targetY) > eps) ||
+                (prev.targetX === null || Math.abs(prev.targetX - targetX) > eps) ||
+                (prev.targetZ === null || Math.abs(prev.targetZ - targetZ) > eps)
+            const differsFromSettings =
+                Math.abs(settingsRef.current.camera.distance - distance) > eps ||
+                Math.abs(settingsRef.current.camera.height - height) > eps ||
+                Math.abs(settingsRef.current.camera.targetY - targetY) > eps ||
+                Math.abs((settingsRef.current.camera.targetX ?? 0) - targetX) > eps ||
+                Math.abs((settingsRef.current.camera.targetZ ?? 0) - targetZ) > eps
+            if (changed && differsFromSettings) {
+                lastCamEmitRef.current = { distance, height, targetY, targetX, targetZ }
+                onCameraChange({ distance, height, targetY, targetX, targetZ })
+            }
+        }
+        controls.addEventListener('change', emitCameraChange)
 
         // Lights
         const amb = new THREE.AmbientLight(0xffffff, settings.lights.ambient)
@@ -118,17 +175,48 @@ export default function Tetris3D({ settings, onApi }) {
         dirLight.position.set(settings.lights.dirX, settings.lights.dirY, settings.lights.dirZ)
         dirLight.castShadow = true
         scene.add(dirLight)
+        ambRef.current = amb
+        dirLightRef.current = dirLight
 
-        // Grid helper for reference
+        // Celestial light (sun/moon)
+        const celestial = new THREE.DirectionalLight(0xffffff, 0)
+        celestial.castShadow = true
+        scene.add(celestial)
+        celestialLightRef.current = celestial
+        // Visible celestial body (sphere)
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x000000, roughness: 0.8, metalness: 0.0 })
+        const body = new THREE.Mesh(
+            new THREE.SphereGeometry(1, 32, 16),
+            bodyMat
+        )
+        body.visible = false
+        celestialBodyRef.current = body
+
+        // Root world group to allow rotating the entire playfield
+        const worldGroup = new THREE.Group()
+        scene.add(worldGroup)
+        worldGroupRef.current = worldGroup
+        // Attach celestial body once world group exists
+        if (celestialBodyRef.current) worldGroup.add(celestialBodyRef.current)
+        // Initialize celestial azimuth from settings
+        if (settings.lights?.celestial) {
+            const initialAz = settings.lights.celestial.azimuthDeg ?? 0
+            celestialAzimuthRef.current = initialAz
+            celestialAzimuthSettingRef.current = initialAz
+        }
+
+        // Grid helper for reference (under world group so it rotates with playfield)
         const grid = new THREE.GridHelper(40, 40, 0x444444, 0x222222)
         grid.position.y = -((ROWS / 2) + 1) * STEP
-        scene.add(grid)
+        worldGroup.add(grid)
 
         // Groups
         const boardGroup = new THREE.Group()
         const activeGroup = new THREE.Group()
-        scene.add(boardGroup)
-        scene.add(activeGroup)
+        worldGroup.add(boardGroup)
+        worldGroup.add(activeGroup)
+        boardGroupRef.current = boardGroup
+        activeGroupRef.current = activeGroup
 
         // Geometry reuse
         const cubeGeom = new THREE.BoxGeometry(CELL_SIZE, CELL_SIZE, CELL_SIZE)
@@ -137,49 +225,54 @@ export default function Tetris3D({ settings, onApi }) {
         const composer = new EffectComposer(renderer)
         const renderPass = new RenderPass(scene, camera)
         composer.addPass(renderPass)
+        const outlinePass = new OutlinePass(new THREE.Vector2(window.innerWidth, window.innerHeight), scene, camera)
+        outlinePass.edgeStrength = 3.0
+        outlinePass.edgeGlow = 0.0
+        outlinePass.edgeThickness = Math.max(0.001, settings.effects.outlineThickness)
+        outlinePass.pulsePeriod = 0
+        outlinePass.visibleEdgeColor.set(settings.effects.outlineColor)
+        outlinePass.hiddenEdgeColor.set('#000000')
+        outlinePass.enabled = !!settings.effects.outlineEnabled
+        composer.addPass(outlinePass)
 
-        let outlinePass = null
-        let fxaaPass = null
-        if (settings.effects.outlineEnabled) {
-            outlinePass = new OutlinePass(new THREE.Vector2(window.innerWidth, window.innerHeight), scene, camera)
-            outlinePass.edgeStrength = 3.0
-            outlinePass.edgeGlow = 0.0
-            outlinePass.edgeThickness = Math.max(0.001, settings.effects.outlineThickness)
-            outlinePass.pulsePeriod = 0
-            outlinePass.visibleEdgeColor.set(settings.effects.outlineColor)
-            outlinePass.hiddenEdgeColor.set('#000000')
-            composer.addPass(outlinePass)
-
-            fxaaPass = new ShaderPass(FXAAShader)
-            const pixelRatio = renderer.getPixelRatio()
-            fxaaPass.material.uniforms['resolution'].value.set(1 / (window.innerWidth * pixelRatio), 1 / (window.innerHeight * pixelRatio))
-            composer.addPass(fxaaPass)
-        }
+        const fxaaPass = new ShaderPass(FXAAShader)
+        const pixelRatio = renderer.getPixelRatio()
+        fxaaPass.material.uniforms['resolution'].value.set(1 / (window.innerWidth * pixelRatio), 1 / (window.innerHeight * pixelRatio))
+        fxaaPass.enabled = !!settings.effects.outlineEnabled
+        composer.addPass(fxaaPass)
+        composerRef.current = composer
+        outlinePassRef.current = outlinePass
+        fxaaPassRef.current = fxaaPass
 
         // Edges toggle via EdgesGeometry overlays (separate groups)
         const edgesActiveGroup = new THREE.Group()
         const edgesBoardGroup = new THREE.Group()
         const edgesBorderGroup = new THREE.Group()
-        scene.add(edgesActiveGroup)
-        scene.add(edgesBoardGroup)
-        scene.add(edgesBorderGroup)
+        worldGroup.add(edgesActiveGroup)
+        worldGroup.add(edgesBoardGroup)
+        worldGroup.add(edgesBorderGroup)
+        edgesActiveGroupRef.current = edgesActiveGroup
+        edgesBoardGroupRef.current = edgesBoardGroup
+        edgesBorderGroupRef.current = edgesBorderGroup
 
         // Border made of cubes surrounding the playfield limits
         const borderGroup = new THREE.Group()
-        scene.add(borderGroup)
+        worldGroup.add(borderGroup)
+        borderGroupRef.current = borderGroup
         function buildBorderMeshes() {
             borderGroup.clear()
-            const borderMat = new THREE.MeshStandardMaterial({ color: 0x606060, roughness: 0.85, metalness: 0.0 })
+            const borderColor = settingsRef.current?.colors?.borderColor || '#606060'
+            const borderMat = new THREE.MeshStandardMaterial({ color: borderColor, roughness: 0.85, metalness: 0.0 })
             const addCubeAt = (x, y) => {
                 const mesh = new THREE.Mesh(cubeGeom, borderMat)
                 mesh.position.copy(cellToWorld(x, y))
                 mesh.castShadow = true
                 mesh.receiveShadow = true
                 borderGroup.add(mesh)
-                if (settings.effects.edgesEnabled) {
+                if (settingsRef.current.effects.edgesEnabled) {
                     const edges = new THREE.LineSegments(
                         new THREE.EdgesGeometry(mesh.geometry),
-                        new THREE.LineBasicMaterial({ color: settings.effects.edgesColor }),
+                        new THREE.LineBasicMaterial({ color: settingsRef.current.effects.edgesColor }),
                     )
                     edges.position.copy(mesh.position)
                     edges.rotation.copy(mesh.rotation)
@@ -199,6 +292,7 @@ export default function Tetris3D({ settings, onApi }) {
             }
         }
         buildBorderMeshes()
+        buildBorderMeshesRef.current = buildBorderMeshes
 
         // Board state
         let board = Array.from({ length: ROWS }, () => Array(COLS).fill(null))
@@ -239,6 +333,14 @@ export default function Tetris3D({ settings, onApi }) {
             return ok
         }
 
+        function getTetrominoColor(type) {
+            const cfg = settingsRef.current?.colors?.tetrominoes
+            if (cfg && cfg[type]) return cfg[type]
+            // fallback to static COLORS if defined
+            if (COLORS && Object.prototype.hasOwnProperty.call(COLORS, type)) return COLORS[type]
+            return '#ffffff'
+        }
+
         function spawn() {
             const keys = Object.keys(TETROMINOES)
             const type = keys[Math.floor(Math.random() * keys.length)]
@@ -277,18 +379,19 @@ export default function Tetris3D({ settings, onApi }) {
         function drawActive() {
             activeGroup.clear()
             edgesActiveGroup.clear()
-            const color = TETROMINOES[current.type].color
+            const color = getTetrominoColor(current.type)
             const selectedObjects = []
             eachCells(current, (x, y) => {
                 const mesh = makeCube(color, x, y)
                 activeGroup.add(mesh)
                 selectedObjects.push(mesh)
-                if (settings.effects.edgesEnabled) addEdgesForActive(mesh, settings.effects.edgesColor)
+                if (settingsRef.current.effects.edgesEnabled) addEdgesForActive(mesh, settingsRef.current.effects.edgesColor)
             })
             if (outlinePass) {
                 outlinePass.selectedObjects = selectedObjects
             }
         }
+        drawActiveRef.current = drawActive
 
         function rebuildBoardMeshes() {
             boardGroup.clear()
@@ -297,12 +400,13 @@ export default function Tetris3D({ settings, onApi }) {
                 for (let x = 0; x < COLS; x++) {
                     const cell = board[y][x]
                     if (!cell) continue
-                    const mesh = makeCube(cell.color, x, y)
+                    const color = cell.type ? getTetrominoColor(cell.type) : cell.color
+                    const mesh = makeCube(color, x, y)
                     boardGroup.add(mesh)
-                    if (settings.effects.edgesEnabled) {
+                    if (settingsRef.current.effects.edgesEnabled) {
                         const edges = new THREE.LineSegments(
                             new THREE.EdgesGeometry(mesh.geometry),
-                            new THREE.LineBasicMaterial({ color: settings.effects.edgesColor }),
+                            new THREE.LineBasicMaterial({ color: settingsRef.current.effects.edgesColor }),
                         )
                         edges.position.copy(mesh.position)
                         edges.rotation.copy(mesh.rotation)
@@ -312,11 +416,12 @@ export default function Tetris3D({ settings, onApi }) {
                 }
             }
         }
+        rebuildBoardMeshesRef.current = rebuildBoardMeshes
 
         function lockPiece() {
-            const color = TETROMINOES[current.type].color
+            const color = getTetrominoColor(current.type)
             eachCells(current, (x, y) => {
-                if (y >= 0 && y < ROWS && x >= 0 && x < COLS) board[y][x] = { color }
+                if (y >= 0 && y < ROWS && x >= 0 && x < COLS) board[y][x] = { color, type: current.type }
             })
             let cleared = 0
             for (let y = 0; y < ROWS; y++) {
@@ -377,22 +482,33 @@ export default function Tetris3D({ settings, onApi }) {
             return cleared
         }
 
+        function resetGame() {
+            // Clear board state and rebuild meshes; keep paused as-is
+            board = Array.from({ length: ROWS }, () => Array(COLS).fill(null))
+            rebuildBoardMeshes()
+            gameOver = false
+            current = null
+            spawn()
+            lastStep = performance.now()
+        }
+
         // Input handlers
         function onKeyDown(e) {
-            // P should always toggle pause regardless of game state
+            // Global hotkeys
             if (e.code === 'KeyP') {
+                // P should always toggle pause regardless of game state
                 paused = !paused
                 api?.onPausedChange?.(paused)
                 return
             }
+            if (e.code === 'KeyR') {
+                // R should reset game regardless of game state; keep paused as-is
+                resetGame()
+                return
+            }
             if (!current || !running || paused) return
             if (gameOver) {
-                if (e.code === 'Enter') {
-                    board = Array.from({ length: ROWS }, () => Array(COLS).fill(null))
-                    rebuildBoardMeshes()
-                    gameOver = false
-                    spawn()
-                }
+                // Use KeyR (handled above) to reset game; ignore other keys
                 return
             }
             switch (e.code) {
@@ -437,6 +553,47 @@ export default function Tetris3D({ settings, onApi }) {
         function animate(now) {
             rafId = requestAnimationFrame(animate)
             controls.update()
+            // Auto-orbit celestial
+            const lt = lastTimeRef.current
+            const dtSec = Math.min(0.1, Math.max(0, (now - lt) / 1000))
+            lastTimeRef.current = now
+            const cset = settingsRef.current?.lights?.celestial
+            const cel = celestialLightRef.current
+            const body = celestialBodyRef.current
+            const worldGroup = worldGroupRef.current
+            if (cset && cel) {
+                if (cset.autoOrbit) {
+                    celestialAzimuthRef.current = (celestialAzimuthRef.current + (cset.orbitSpeedDeg || 0) * dtSec) % 360
+                }
+                const az = (celestialAzimuthRef.current)
+                const elev = (cset.elevationDeg || 0) * Math.PI / 180
+                const r = cset.radius || 60
+                const y = Math.sin(elev) * r
+                const horiz = Math.cos(elev) * r
+                const x = Math.sin(az * Math.PI / 180) * horiz
+                const z = Math.cos(az * Math.PI / 180) * horiz
+                cel.color.set(cset.color || '#ffffff')
+                cel.intensity = cset.enabled ? cset.intensity : 0
+                cel.castShadow = !!cset.castShadow
+                cel.position.set(x, y, z)
+                if (cel.target) {
+                    cel.target.position.set(0, 0, 0)
+                    if (!cel.target.parent && worldGroup) worldGroup.add(cel.target)
+                }
+                if (body) {
+                    const show = !!(cset.enabled && cset.showBody)
+                    body.visible = show
+                    const size = Math.max(0.1, cset.bodySize || 6)
+                    body.scale.setScalar(size)
+                    body.position.set(x, y, z)
+                    const isSun = (cset.kind || 'sun') === 'sun'
+                    const col = new THREE.Color(cset.color || '#ffffff')
+                    const mat = body.material
+                    mat.color.set(isSun ? '#fff4c1' : '#d0d6ff')
+                    mat.emissive.set(isSun ? col : new THREE.Color('#333950'))
+                    mat.needsUpdate = true
+                }
+            }
             const interval = softDrop ? 60 : gravityMs
             if (!paused && !gameOver && now - lastStep > interval) {
                 lastStep = now
@@ -445,7 +602,7 @@ export default function Tetris3D({ settings, onApi }) {
                     spawn()
                 }
             }
-            if (outlinePass) composer.render()
+            if (outlinePass.enabled) composer.render()
             else renderer.render(scene, camera)
         }
 
@@ -459,6 +616,7 @@ export default function Tetris3D({ settings, onApi }) {
             setPaused: (v) => { paused = !!v },
             isPaused: () => paused,
             onPausedChange: null,
+            resetGame,
         }
         onApi?.(api)
 
@@ -469,6 +627,7 @@ export default function Tetris3D({ settings, onApi }) {
             window.removeEventListener('resize', onResize)
             window.removeEventListener('keydown', onKeyDown)
             window.removeEventListener('keyup', onKeyUp)
+            controls.removeEventListener('change', emitCameraChange)
             controls.dispose()
             composer.dispose()
             renderer.dispose()
@@ -480,6 +639,141 @@ export default function Tetris3D({ settings, onApi }) {
                     else obj.material?.dispose?.()
                 }
             })
+        }
+    }, [])
+
+    // React to settings updates without recreating the scene
+    useEffect(() => {
+        settingsRef.current = settings
+        const cam = cameraRef.current
+        const controls = controlsRef.current
+        const amb = ambRef.current
+        const dir = dirLightRef.current
+        const cel = celestialLightRef.current
+        const body = celestialBodyRef.current
+        const outlinePass = outlinePassRef.current
+        const fxaaPass = fxaaPassRef.current
+        const renderer = rendererRef.current
+        const edgesBoard = edgesBoardGroupRef.current
+        const edgesBorder = edgesBorderGroupRef.current
+        const boardGroup = boardGroupRef.current
+        const borderGroup = borderGroupRef.current
+        const worldGroup = worldGroupRef.current
+        if (!cam || !controls || !amb || !dir || !outlinePass || !renderer) return
+
+        // Camera
+        cam.fov = settings.camera.fov
+        cam.near = settings.camera.near ?? cam.near
+        cam.far = settings.camera.far ?? cam.far
+        cam.updateProjectionMatrix()
+        // Apply target first
+        const tX = settings.camera.targetX ?? 0
+        const tY = settings.camera.targetY
+        const tZ = settings.camera.targetZ ?? 0
+        controls.target.set(tX, tY, tZ)
+        // Maintain current azimuth and apply planar distance + height
+        const curDx = cam.position.x - tX
+        const curDz = cam.position.z - tZ
+        const theta = (Math.abs(curDx) > 1e-6 || Math.abs(curDz) > 1e-6) ? Math.atan2(curDx, curDz) : 0
+        const radius = settings.camera.distance
+        cam.position.set(
+            tX + Math.sin(theta) * radius,
+            settings.camera.height,
+            tZ + Math.cos(theta) * radius,
+        )
+        controls.update()
+
+        // Rotate entire playfield
+        if (worldGroup) {
+            worldGroup.rotation.x = settings.camera.rotX ?? 0
+            worldGroup.rotation.z = settings.camera.rotZ ?? 0
+        }
+
+        // OrbitControls settings
+        if (controls && settings.controls) {
+            const c = settings.controls
+            controls.enableRotate = c.enableRotate
+            controls.enableZoom = c.enableZoom
+            controls.enablePan = c.enablePan
+            controls.enableDamping = c.enableDamping
+            controls.dampingFactor = c.dampingFactor
+            controls.rotateSpeed = c.rotateSpeed
+            controls.zoomSpeed = c.zoomSpeed
+            controls.panSpeed = c.panSpeed
+            controls.autoRotate = c.autoRotate
+            controls.autoRotateSpeed = c.autoRotateSpeed
+            controls.minDistance = c.minDistance
+            controls.maxDistance = c.maxDistance
+            controls.minPolarAngle = c.minPolarAngle
+            controls.maxPolarAngle = c.maxPolarAngle
+            controls.minAzimuthAngle = c.minAzimuthAngle
+            controls.maxAzimuthAngle = c.maxAzimuthAngle
+            if ('zoomToCursor' in controls && typeof controls.zoomToCursor !== 'undefined') {
+                // keep default; add later as setting if needed
+            }
+        }
+
+        // Lights
+        amb.intensity = settings.lights.ambient
+        dir.intensity = settings.lights.directional
+        dir.position.set(settings.lights.dirX, settings.lights.dirY, settings.lights.dirZ)
+        // Celestial: only sync azimuth from settings if user changed it (avoid resets on other settings updates)
+        if (settings.lights.celestial) {
+            const azSet = settings.lights.celestial.azimuthDeg
+            if (azSet !== celestialAzimuthSettingRef.current) {
+                celestialAzimuthRef.current = azSet ?? celestialAzimuthRef.current
+                celestialAzimuthSettingRef.current = azSet
+            }
+        }
+
+        // Outline
+        outlinePass.enabled = !!settings.effects.outlineEnabled
+        outlinePass.edgeThickness = Math.max(0.001, settings.effects.outlineThickness)
+        outlinePass.visibleEdgeColor.set(settings.effects.outlineColor)
+        if (fxaaPass) fxaaPass.enabled = !!settings.effects.outlineEnabled
+        if (fxaaPass) {
+            const pixelRatio = renderer.getPixelRatio()
+            fxaaPass.material.uniforms['resolution'].value.set(1 / (window.innerWidth * pixelRatio), 1 / (window.innerHeight * pixelRatio))
+        }
+
+        // Edges toggle/color updates for static meshes
+        if (edgesBoard && boardGroup) {
+            edgesBoard.clear()
+            for (const mesh of boardGroup.children) {
+                if (!settings.effects.edgesEnabled) continue
+                const edges = new THREE.LineSegments(
+                    new THREE.EdgesGeometry(mesh.geometry),
+                    new THREE.LineBasicMaterial({ color: settings.effects.edgesColor }),
+                )
+                edges.position.copy(mesh.position)
+                edges.rotation.copy(mesh.rotation)
+                edges.scale.copy(mesh.scale)
+                edgesBoard.add(edges)
+            }
+        }
+        if (edgesBorder && borderGroup) {
+            edgesBorder.clear()
+            for (const mesh of borderGroup.children) {
+                if (!settings.effects.edgesEnabled) continue
+                const edges = new THREE.LineSegments(
+                    new THREE.EdgesGeometry(mesh.geometry),
+                    new THREE.LineBasicMaterial({ color: settings.effects.edgesColor }),
+                )
+                edges.position.copy(mesh.position)
+                edges.rotation.copy(mesh.rotation)
+                edges.scale.copy(mesh.scale)
+                edgesBorder.add(edges)
+            }
+        }
+
+        // Colors: if colors object exists, rebuild border meshes with new color and refresh board/active colors
+        if (settings.colors) {
+            // Border recolor: rebuild border meshes to apply new material color
+            buildBorderMeshesRef.current?.()
+            // Board recolor: rebuild board meshes to apply per-type colors
+            rebuildBoardMeshesRef.current?.()
+            // Active piece recolor
+            drawActiveRef.current?.()
         }
     }, [settings])
 
