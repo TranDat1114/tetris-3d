@@ -156,9 +156,49 @@ export default function Tetris3D({ settings, onApi }) {
             composer.addPass(fxaaPass)
         }
 
-        // Edges toggle via EdgesGeometry overlays
-        const edgesGroup = new THREE.Group()
-        scene.add(edgesGroup)
+        // Edges toggle via EdgesGeometry overlays (separate groups)
+        const edgesActiveGroup = new THREE.Group()
+        const edgesBoardGroup = new THREE.Group()
+        const edgesBorderGroup = new THREE.Group()
+        scene.add(edgesActiveGroup)
+        scene.add(edgesBoardGroup)
+        scene.add(edgesBorderGroup)
+
+        // Border made of cubes surrounding the playfield limits
+        const borderGroup = new THREE.Group()
+        scene.add(borderGroup)
+        function buildBorderMeshes() {
+            borderGroup.clear()
+            const borderMat = new THREE.MeshStandardMaterial({ color: 0x606060, roughness: 0.85, metalness: 0.0 })
+            const addCubeAt = (x, y) => {
+                const mesh = new THREE.Mesh(cubeGeom, borderMat)
+                mesh.position.copy(cellToWorld(x, y))
+                mesh.castShadow = true
+                mesh.receiveShadow = true
+                borderGroup.add(mesh)
+                if (settings.effects.edgesEnabled) {
+                    const edges = new THREE.LineSegments(
+                        new THREE.EdgesGeometry(mesh.geometry),
+                        new THREE.LineBasicMaterial({ color: settings.effects.edgesColor }),
+                    )
+                    edges.position.copy(mesh.position)
+                    edges.rotation.copy(mesh.rotation)
+                    edges.scale.copy(mesh.scale)
+                    edgesBorderGroup.add(edges)
+                }
+            }
+            // Bottom and Top rows
+            for (let x = -1; x <= COLS; x++) {
+                addCubeAt(x, -1)
+                addCubeAt(x, ROWS)
+            }
+            // Left and Right columns
+            for (let y = 0; y < ROWS; y++) {
+                addCubeAt(-1, y)
+                addCubeAt(COLS, y)
+            }
+        }
+        buildBorderMeshes()
 
         // Board state
         let board = Array.from({ length: ROWS }, () => Array(COLS).fill(null))
@@ -222,7 +262,7 @@ export default function Tetris3D({ settings, onApi }) {
             return mesh
         }
 
-        function addEdgesFor(mesh, color = '#ffffff') {
+        function addEdgesForActive(mesh, color = '#ffffff') {
             const edges = new THREE.LineSegments(
                 new THREE.EdgesGeometry(mesh.geometry),
                 new THREE.LineBasicMaterial({ color }),
@@ -230,20 +270,20 @@ export default function Tetris3D({ settings, onApi }) {
             edges.position.copy(mesh.position)
             edges.rotation.copy(mesh.rotation)
             edges.scale.copy(mesh.scale)
-            edgesGroup.add(edges)
+            edgesActiveGroup.add(edges)
             return edges
         }
 
         function drawActive() {
             activeGroup.clear()
-            edgesGroup.clear()
+            edgesActiveGroup.clear()
             const color = TETROMINOES[current.type].color
             const selectedObjects = []
             eachCells(current, (x, y) => {
                 const mesh = makeCube(color, x, y)
                 activeGroup.add(mesh)
                 selectedObjects.push(mesh)
-                if (settings.effects.edgesEnabled) addEdgesFor(mesh, settings.effects.edgesColor)
+                if (settings.effects.edgesEnabled) addEdgesForActive(mesh, settings.effects.edgesColor)
             })
             if (outlinePass) {
                 outlinePass.selectedObjects = selectedObjects
@@ -252,13 +292,23 @@ export default function Tetris3D({ settings, onApi }) {
 
         function rebuildBoardMeshes() {
             boardGroup.clear()
+            edgesBoardGroup.clear()
             for (let y = 0; y < ROWS; y++) {
                 for (let x = 0; x < COLS; x++) {
                     const cell = board[y][x]
                     if (!cell) continue
                     const mesh = makeCube(cell.color, x, y)
                     boardGroup.add(mesh)
-                    if (settings.effects.edgesEnabled) addEdgesFor(mesh, settings.effects.edgesColor)
+                    if (settings.effects.edgesEnabled) {
+                        const edges = new THREE.LineSegments(
+                            new THREE.EdgesGeometry(mesh.geometry),
+                            new THREE.LineBasicMaterial({ color: settings.effects.edgesColor }),
+                        )
+                        edges.position.copy(mesh.position)
+                        edges.rotation.copy(mesh.rotation)
+                        edges.scale.copy(mesh.scale)
+                        edgesBoardGroup.add(edges)
+                    }
                 }
             }
         }

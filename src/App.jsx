@@ -21,7 +21,7 @@ function App() {
       dirZ: 10,
     },
     effects: {
-      outlineEnabled: true,
+      outlineEnabled: false,
       outlineColor: '#666',
       outlineThickness: 0.003,
       edgesEnabled: false,
@@ -68,7 +68,7 @@ function App() {
 
   return (
 
-    <div style={{ width: '100%', height: '100svh', position: 'relative' }}>
+    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <Tetris3D settings={memoSettings} onApi={onApi} />
       <SettingsPanel
         settings={settings}
