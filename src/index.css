@@ -18,6 +18,7 @@ a {
   color: #646cff;
   text-decoration: inherit;
 }
+
 a:hover {
   color: #535bf2;
 }
@@ -28,6 +29,32 @@ body {
   place-items: center;
   min-width: 320px;
   min-height: 100vh;
+}
+
+/* Custom scrollbars - dark, subtle, and thin */
+.settings-panel::-webkit-scrollbar {
+  width: 10px;
+}
+
+.settings-panel::-webkit-scrollbar-track {
+  background: rgba(30, 30, 36, 0.6);
+  border-radius: 8px;
+}
+
+.settings-panel::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #3a3a42, #2a2a30);
+  border-radius: 8px;
+  border: 2px solid rgba(20, 20, 24, 0.85);
+}
+
+.settings-panel::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #4a4a52, #34343a);
+}
+
+/* Firefox scrollbar */
+.settings-panel {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a42 rgba(30, 30, 36, 0.6);
 }
 
 h1 {
@@ -46,9 +73,11 @@ button {
   cursor: pointer;
   transition: border-color 0.25s;
 }
+
 button:hover {
   border-color: #646cff;
 }
+
 button:focus,
 button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
@@ -59,9 +88,11 @@ button:focus-visible {
     color: #213547;
     background-color: #ffffff;
   }
+
   a:hover {
     color: #747bff;
   }
+
   button {
     background-color: #f9f9f9;
   }
