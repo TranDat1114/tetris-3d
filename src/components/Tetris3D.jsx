@@ -79,7 +79,7 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
     // UI overlays state (React-driven)
     const [gameOverUI, setGameOverUI] = useState(false)
     const settingsRef = useRef(settings)
-    const currentTypeRef = useRef(null)
+    // const currentTypeRef = useRef(null)
     const cameraRef = useRef(null)
     const rendererRef = useRef(null)
     const controlsRef = useRef(null)
@@ -375,7 +375,6 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
                 })
                 console.warn('[GameOver] Spawn blocked. Cells:', reasons)
                 setGameOverUI(true)
-                setPausedUI(false)
                 return
             }
             drawActive()
@@ -469,7 +468,6 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
                 gameOver = true
                 console.warn('[GameOver] Piece locked above top row. type:', current.type, 'pos:', current.pos)
                 setGameOverUI(true)
-                setPausedUI(false)
             }
             return cleared
         }
@@ -514,7 +512,10 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
 
         function hardDrop() {
             if (!current) return 0
-            while (tryMove(0, -1)) { }
+            let moved
+            do {
+                moved = tryMove(0, -1)
+            } while (moved)
             const cleared = lockPiece()
             if (!gameOver) spawn()
             return cleared
@@ -679,6 +680,7 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
                 }
             })
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     // React to settings updates without recreating the scene
@@ -688,8 +690,8 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
         const controls = controlsRef.current
         const amb = ambRef.current
         const dir = dirLightRef.current
-        const cel = celestialLightRef.current
-        const body = celestialBodyRef.current
+        // const cel = celestialLightRef.current
+        // const body = celestialBodyRef.current
         const outlinePass = outlinePassRef.current
         const fxaaPass = fxaaPassRef.current
         const renderer = rendererRef.current
