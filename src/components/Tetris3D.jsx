@@ -78,6 +78,8 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
     const mountRef = useRef(null)
     // UI overlays state (React-driven)
     const [gameOverUI, setGameOverUI] = useState(false)
+    const [scoreUI, setScoreUI] = useState(0)
+    const [nextTypeUI, setNextTypeUI] = useState(null)
     const settingsRef = useRef(settings)
     // const currentTypeRef = useRef(null)
     const cameraRef = useRef(null)
@@ -307,6 +309,16 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
         let rafId = 0
         let softDrop = false
         let gameOver = false
+        // Scoring and next-queue
+        let score = 0
+        const addScore = (pts) => { if (pts > 0) { score += pts; setScoreUI(score) } }
+        const scoreForClears = (n) => (n === 1 ? 100 : n === 2 ? 300 : n === 3 ? 500 : n >= 4 ? 800 : 0)
+        const randomType = () => {
+            const keys = Object.keys(TETROMINOES)
+            return keys[Math.floor(Math.random() * keys.length)]
+        }
+        let nextType = randomType()
+        setNextTypeUI(nextType)
 
         function cellToWorld(x, y) {
             const wx = (x - COLS / 2 + 0.5) * STEP
@@ -345,8 +357,7 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
         }
 
         function spawn() {
-            const keys = Object.keys(TETROMINOES)
-            const type = keys[Math.floor(Math.random() * keys.length)]
+            const type = nextType
             const rotIndex = 0
             const shape = TETROMINOES[type].rotations[rotIndex]
             // Compute shape bounds to center horizontally and place top at top row
@@ -378,6 +389,9 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
                 return
             }
             drawActive()
+            // roll next for preview
+            nextType = randomType()
+            setNextTypeUI(nextType)
         }
 
         function makeCube(color, x, y) {
@@ -463,6 +477,7 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
                 }
             }
             rebuildBoardMeshes()
+            if (cleared > 0) addScore(scoreForClears(cleared))
             if (overflow) {
                 // Any part of the piece locked above the top: game over
                 gameOver = true
@@ -512,10 +527,7 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
 
         function hardDrop() {
             if (!current) return 0
-            let moved
-            do {
-                moved = tryMove(0, -1)
-            } while (moved)
+            while (tryMove(0, -1)) { /* hard drop */ }
             const cleared = lockPiece()
             if (!gameOver) spawn()
             return cleared
@@ -526,8 +538,12 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
             board = Array.from({ length: ROWS }, () => Array(COLS).fill(null))
             rebuildBoardMeshes()
             gameOver = false
+            score = 0
+            setScoreUI(0)
             setGameOverUI(false)
             current = null
+            nextType = randomType()
+            setNextTypeUI(nextType)
             spawn()
             lastStep = performance.now()
         }
@@ -820,6 +836,45 @@ export default function Tetris3D({ settings, onApi, onCameraChange }) {
 
     return (
         <div ref={mountRef} style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}>
+            {/* HUD: Score + Next piece */}
+            <div style={{ position: 'fixed', left: 12, top: 12, zIndex: 20, pointerEvents: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ background: 'rgba(20,20,24,0.85)', color: '#fff', border: '1px solid #333', borderRadius: 8, padding: '8px 10px', fontWeight: 800, minWidth: 120, textAlign: 'left' }}>
+                    Score: {scoreUI}
+                </div>
+                <div style={{ background: 'rgba(20,20,24,0.85)', color: '#fff', border: '1px solid #333', borderRadius: 8, padding: 8, minWidth: 120 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 6 }}>Next</div>
+                    {nextTypeUI ? (
+                        (() => {
+                            const rot = TETROMINOES[nextTypeUI].rotations[0]
+                            let minCx = Infinity, maxCx = -Infinity, minCy = Infinity, maxCy = -Infinity
+                            for (const [cx, cy] of rot) {
+                                if (cx < minCx) minCx = cx
+                                if (cx > maxCx) maxCx = cx
+                                if (cy < minCy) minCy = cy
+                                if (cy > maxCy) maxCy = cy
+                            }
+                            const w = maxCx - minCx + 1
+                            const h = maxCy - minCy + 1
+                            const size = 14
+                            const gap = 3
+                            const color = (settingsRef.current?.colors?.tetrominoes?.[nextTypeUI]) ?? (COLORS?.[nextTypeUI] ? `#${COLORS[nextTypeUI].toString(16).padStart(6, '0')}` : '#ffffff')
+                            return (
+                                <div style={{ position: 'relative', width: w * (size + gap) - gap, height: h * (size + gap) - gap }}>
+                                    {rot.map(([cx, cy], i) => {
+                                        const x = cx - minCx
+                                        const y = cy - minCy
+                                        return (
+                                            <div key={i} style={{ position: 'absolute', left: x * (size + gap), top: y * (size + gap), width: size, height: size, background: color, borderRadius: 2, boxShadow: '0 1px 3px rgba(0,0,0,0.4)' }} />
+                                        )
+                                    })}
+                                </div>
+                            )
+                        })()
+                    ) : (
+                        <div style={{ opacity: 0.6, fontSize: 12 }}>—</div>
+                    )}
+                </div>
+            </div>
             {gameOverUI && (
                 <div
                     style={{
